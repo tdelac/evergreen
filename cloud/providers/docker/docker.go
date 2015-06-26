@@ -15,7 +15,7 @@ import (
 	//	"github.com/mitchellh/mapstructure"
 	//	"math"
 	"math/rand"
-	//	"strconv"
+	"strconv"
 	"time"
 )
 
@@ -30,7 +30,6 @@ const (
 )
 
 type DockerManager struct {
-	Client *docker.Client
 }
 
 type Settings struct {
@@ -48,6 +47,15 @@ var (
 	Port          = 2376
 	ContainerName = "trial"
 )
+
+// ********************************************************************
+//  TODO for the love of god, find a way to deal with settings cleanly
+// ********************************************************************
+
+func generateClient(settings *Settings) (*docker.Client, error) {
+	endpoint := fmt.Sprintf("tcp://%s:%s", settings.HostIp, strconv.Itoa(settings.Port))
+	return docker.NewTLSClient(endpoint, "./certificates/cert.pem", "./certificates/key.pem", "./certificates/ca.pem") // TODO deal with this (settings?)
+}
 
 //Validate checks that the settings from the config file are sane.
 func (self *Settings) Validate() error {
@@ -74,6 +82,16 @@ func (_ *DockerManager) GetSettings() cloud.ProviderSettings {
 	return &Settings{}
 }
 
+func tmpGetSettings() *Settings {
+	return &Settings{
+		HostIp,
+		ImageName,
+		User,
+		Port, // TODO if this really is restricted to 2376, then should be a constant
+		ContainerName,
+	}
+}
+
 // SpawnInstance creates and starts a new Docker container
 func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, userHost bool) (*host.Host, error) {
 	var err error
@@ -83,13 +101,7 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	}
 
 	// Settings
-	dockerSettings := &Settings{
-		HostIp,
-		ImageName,
-		User,
-		Port, // TODO if this really is restricted to 2376, then should be a constant
-		ContainerName,
-	}
+	dockerSettings := tmpGetSettings()
 	//	if err := mapstructure.Decode(d.ProviderSettings, digoSettings); err != nil {
 	//		return nil, fmt.Errorf("Error decoding params for distro %v: %v", d.Id, err)
 	//	}
@@ -99,8 +111,7 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	}
 
 	// Initialize client
-	endpoint := fmt.Sprintf("tcp://%s:%s", dockerSettings.HostIp, dockerSettings.Port)
-	dockerMgr.Client, err = docker.NewTLSClient(endpoint, "cert.pem", "key.pem", "ca.pem") // TODO deal with this (settings?)
+	dockerClient, err := generateClient(dockerSettings)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Docker initialize client API call failed "+
 			"for host '%s': %v", "FILLER", err)
@@ -108,7 +119,7 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	}
 
 	// Build container
-	newContainer, err := dockerMgr.Client.CreateContainer(
+	newContainer, err := dockerClient.CreateContainer(
 		docker.CreateContainerOptions{
 			Name: dockerSettings.ContainerName,
 			Config: &docker.Config{
@@ -124,7 +135,7 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	}
 
 	// Start container
-	err = dockerMgr.Client.StartContainer(newContainer.ID, nil)
+	err = dockerClient.StartContainer(newContainer.ID, nil)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Docker start container API call failed "+
 			"for host '%s': %v", "FILLER", err)
@@ -133,7 +144,7 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 
 	// Retrieve container details
 	// TODO is this necessary??
-	newContainer, err = dockerMgr.Client.InspectContainer(newContainer.ID)
+	newContainer, err = dockerClient.InspectContainer(newContainer.ID)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Docker inspect container API call failed "+
 			"for host '%s': %v", "FILLER", err)
@@ -191,7 +202,15 @@ func getStatus(s *docker.State) int {
 // GetInstanceStatus returns a universal status code representing the state
 // of a container.
 func (dockerMgr *DockerManager) GetInstanceStatus(host *host.Host) (cloud.CloudStatus, error) {
-	container, err := dockerMgr.Client.InspectContainer(host.Id)
+	dockerClient, err := generateClient(tmpGetSettings())
+	// TODO refactor this to be cleaner
+	if err != nil {
+		evergreen.Logger.Logf(slogger.ERROR, "Docker initialize client API call failed "+
+			"for host '%s': %v", "FILLER", err)
+		return cloud.StatusUnknown, err
+	}
+
+	container, err := dockerClient.InspectContainer(host.Id)
 	if err != nil {
 		return cloud.StatusUnknown, fmt.Errorf("Failed to get container info: %v", err)
 	}
@@ -213,7 +232,15 @@ func (dockerMgr *DockerManager) GetInstanceStatus(host *host.Host) (cloud.CloudS
 //GetDNSName gets the DNS hostname of a droplet by reading it directly from
 //the Docker API
 func (dockerMgr *DockerManager) GetDNSName(host *host.Host) (string, error) {
-	container, err := dockerMgr.Client.InspectContainer(host.Id)
+	dockerClient, err := generateClient(tmpGetSettings())
+	// TODO refactor this to be cleaner
+	if err != nil {
+		evergreen.Logger.Logf(slogger.ERROR, "Docker initialize client API call failed "+
+			"for host '%s': %v", "FILLER", err)
+		return "", err
+	}
+
+	container, err := dockerClient.InspectContainer(host.Id)
 	if err != nil {
 		return "", err
 	}
@@ -228,12 +255,20 @@ func (dockerMgr *DockerManager) CanSpawn() (bool, error) {
 
 //TerminateInstance destroys a container.
 func (dockerMgr *DockerManager) TerminateInstance(host *host.Host) error {
-	err := dockerMgr.Client.StopContainer(host.Id, 5)
+	dockerClient, err := generateClient(tmpGetSettings())
+	// TODO refactor this to be cleaner
+	if err != nil {
+		evergreen.Logger.Logf(slogger.ERROR, "Docker initialize client API call failed "+
+			"for host '%s': %v", "FILLER", err)
+		return err
+	}
+
+	err = dockerClient.StopContainer(host.Id, 5)
 	if err != nil {
 		return evergreen.Logger.Errorf(slogger.ERROR, "Failed to stop container '%v': %v", host.Id, err)
 	}
 
-	err = dockerMgr.Client.RemoveContainer(
+	err = dockerClient.RemoveContainer(
 		docker.RemoveContainerOptions{
 			ID: host.Id,
 		},
@@ -248,7 +283,7 @@ func (dockerMgr *DockerManager) TerminateInstance(host *host.Host) error {
 //Configure populates a DockerManager by reading relevant settings from the
 //config object.
 func (dockerMgr *DockerManager) Configure(settings *evergreen.Settings) error {
-	// TODO figure this out
+	// TODO figure this out. This could just be where the client is initialized. Do have enough info?? prly
 	//	digoMgr.account = digo.NewAccount(settings.Providers.DigitalOcean.ClientId,
 	//		settings.Providers.DigitalOcean.Key)
 	//	return nil
