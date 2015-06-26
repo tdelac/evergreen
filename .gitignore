@@ -44,3 +44,7 @@ ui/node_modules/
 .godeps
 
 npm-debug.log
+
+# test certificates
+*.pem
+certificates
