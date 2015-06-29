@@ -7,7 +7,7 @@ import (
 	"github.com/evergreen-ci/evergreen/cloud"
 	//	"github.com/evergreen-ci/evergreen/command"
 	//	"github.com/evergreen-ci/evergreen/db/bsonutil"
-	//	"github.com/evergreen-ci/evergreen/hostutil"
+	"github.com/evergreen-ci/evergreen/hostutil"
 	"github.com/evergreen-ci/evergreen/model"
 	"github.com/evergreen-ci/evergreen/model/distro"
 	"github.com/evergreen-ci/evergreen/model/host"
@@ -92,6 +92,20 @@ func tmpGetSettings() *Settings {
 	}
 }
 
+// retrieveOpenPortBinding returns the first exposed port for a give docker container
+// TODO probably only need to return the port part?
+func retrieveOpenPortBinding(containerPtr *docker.Container) (docker.PortBinding, error) {
+	exposedPorts := containerPtr.Config.ExposedPorts
+	for k, _ := range exposedPorts {
+		ports := containerPtr.NetworkSettings.Ports
+		portBindings := ports[k]
+		if len(portBindings) > 0 {
+			return portBindings[0], nil
+		}
+	}
+	return docker.PortBinding{}, fmt.Errorf("No available ports")
+}
+
 // SpawnInstance creates and starts a new Docker container
 func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, userHost bool) (*host.Host, error) {
 	var err error
@@ -125,7 +139,9 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 			Config: &docker.Config{
 				Image: dockerSettings.ImageName,
 			},
-			HostConfig: nil, // TODO get from settings. Specifically, range of ports?
+			HostConfig: &docker.HostConfig{
+				PublishAllPorts: true,
+			},
 		},
 	)
 	if err != nil {
@@ -143,7 +159,6 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	}
 
 	// Retrieve container details
-	// TODO is this necessary??
 	newContainer, err = dockerClient.InspectContainer(newContainer.ID)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Docker inspect container API call failed "+
@@ -151,12 +166,21 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 		return nil, err
 	}
 
+	portBinding, err := retrieveOpenPortBinding(newContainer)
+	if err != nil {
+		evergreen.Logger.Logf(slogger.ERROR, "Error with docker container '%v': "+
+			"%v", newContainer.ID, err)
+		return nil, err
+	}
+	hostPort := portBinding.HostPort
+	hostStr := fmt.Sprintf("%s:%s", dockerSettings.HostIp, hostPort)
+
 	// Add host info to db
 	instanceName := "container-" +
 		fmt.Sprintf("%d", rand.New(rand.NewSource(time.Now().UnixNano())).Int())
 	host := &host.Host{
 		Id:               newContainer.ID,
-		Host:             dockerSettings.HostIp,
+		Host:             hostStr,
 		User:             d.User,
 		Tag:              instanceName,
 		Distro:           *d,
@@ -283,22 +307,18 @@ func (dockerMgr *DockerManager) TerminateInstance(host *host.Host) error {
 //Configure populates a DockerManager by reading relevant settings from the
 //config object.
 func (dockerMgr *DockerManager) Configure(settings *evergreen.Settings) error {
-	// TODO figure this out. This could just be where the client is initialized. Do have enough info?? prly
-	//	digoMgr.account = digo.NewAccount(settings.Providers.DigitalOcean.ClientId,
-	//		settings.Providers.DigitalOcean.Key)
-	//	return nil
+	// TODO is this just for mci_settings.yml stuff?
 	return nil
 }
 
 //IsSSHReachable checks if a container appears to be reachable via SSH by
 //attempting to contact the host directly.
 func (dockerMgr *DockerManager) IsSSHReachable(host *host.Host, keyPath string) (bool, error) {
-	//	sshOpts, err := digoMgr.GetSSHOptions(host, keyPath)
-	//	if err != nil {
-	//		return false, err
-	//	}
-	//	return hostutil.CheckSSHResponse(host, sshOpts)
-	return false, fmt.Errorf("Unimplemented")
+	sshOpts, err := dockerMgr.GetSSHOptions(host, keyPath)
+	if err != nil {
+		return false, err
+	}
+	return hostutil.CheckSSHResponse(host, sshOpts)
 }
 
 //IsUp checks the container's state by querying the Docker API and
@@ -315,23 +335,21 @@ func (dockerMgr *DockerManager) IsUp(host *host.Host) (bool, error) {
 }
 
 func (dockerMgr *DockerManager) OnUp(host *host.Host) error {
-	// TODO idk what the is for!!!!
+	// TODO idk what this for!!!!
 	return nil
 }
 
 //GetSSHOptions returns an array of default SSH options for connecting to a
 //container.
 func (dockerMgr *DockerManager) GetSSHOptions(host *host.Host, keyPath string) ([]string, error) {
-	// TODO figure this out too
-	//	if keyPath == "" {
-	//		return []string{}, fmt.Errorf("No key specified for DigitalOcean host")
-	//	}
-	//	opts := []string{"-i", keyPath}
-	//	for _, opt := range host.Distro.SSHOptions {
-	//		opts = append(opts, "-o", opt)
-	//	}
-	//	return opts, nil
-	return nil, nil
+	if keyPath == "" {
+		return []string{}, fmt.Errorf("No key specified for DigitalOcean host")
+	}
+	opts := []string{"-i", keyPath}
+	for _, opt := range host.Distro.SSHOptions {
+		opts = append(opts, "-o", opt)
+	}
+	return opts, nil
 }
 
 // TimeTilNextPayment returns the amount of time until the next payment is due
