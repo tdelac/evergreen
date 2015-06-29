@@ -48,10 +48,6 @@ var (
 	ContainerName = "trial"
 )
 
-// ********************************************************************
-//  TODO for the love of god, find a way to deal with settings cleanly
-// ********************************************************************
-
 func generateClient(settings *Settings) (*docker.Client, error) {
 	endpoint := fmt.Sprintf("tcp://%s:%s", settings.HostIp, strconv.Itoa(settings.Port))
 	return docker.NewTLSClient(endpoint, "./certificates/cert.pem", "./certificates/key.pem", "./certificates/ca.pem") // TODO deal with this (settings?)
