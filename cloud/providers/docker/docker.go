@@ -5,17 +5,14 @@ import (
 	"github.com/10gen-labs/slogger/v1"
 	"github.com/evergreen-ci/evergreen"
 	"github.com/evergreen-ci/evergreen/cloud"
-	//	"github.com/evergreen-ci/evergreen/command"
-	//	"github.com/evergreen-ci/evergreen/db/bsonutil"
+	"github.com/evergreen-ci/evergreen/db/bsonutil"
 	"github.com/evergreen-ci/evergreen/hostutil"
 	"github.com/evergreen-ci/evergreen/model"
 	"github.com/evergreen-ci/evergreen/model/distro"
 	"github.com/evergreen-ci/evergreen/model/host"
 	"github.com/fsouza/go-dockerclient"
-	//	"github.com/mitchellh/mapstructure"
-	//	"math"
+	"github.com/mitchellh/mapstructure"
 	"math/rand"
-	"strconv"
 	"time"
 )
 
@@ -27,48 +24,114 @@ const (
 	DockerStatusUnknown
 
 	ProviderName = "docker"
+	Timeout      = 5
 )
 
 type DockerManager struct {
 }
 
 type Settings struct {
-	HostIp        string
-	ImageName     string
-	User          string
-	Port          int
-	ContainerName string
+	HostIp        string `mapstructure:"host_ip" json:"host_ip" bson:"host_ip"`
+	ImageId       string `mapstructure:"image_id" json:"image_id" bson:"image_id"`
+	ContainerName string `mapstructure:"container_name" json:"container_name" bson:"container_name"`
+	ClientPort    int    `mapstructure:"client_port" json:"client_port" bson:"client_port"`
+	MinPort       int    `mapstructure:"min_port" json:"min_port" bson:"min_port"`
+	MaxPort       int    `mapstructure:"max_port" json:"max_port" bson:"max_port"`
 }
 
 var (
-	HostIp        = "10.4.102.195"
-	ImageName     = "eg_sshd"
-	User          = "root"
-	Port          = 2376
-	ContainerName = "trial"
+	// bson fields for the Settings struct
+	HostIp        = bsonutil.MustHaveTag(Settings{}, "HostIp")
+	ImageId       = bsonutil.MustHaveTag(Settings{}, "ImageId")
+	ContainerName = bsonutil.MustHaveTag(Settings{}, "ContainerName")
+	ClientPort    = bsonutil.MustHaveTag(Settings{}, "ClientPort")
+	MinPort       = bsonutil.MustHaveTag(Settings{}, "MinPort")
+	MaxPort       = bsonutil.MustHaveTag(Settings{}, "MaxPort")
 )
 
-func generateClient(settings *Settings) (*docker.Client, error) {
-	endpoint := fmt.Sprintf("tcp://%s:%s", settings.HostIp, strconv.Itoa(settings.Port))
-	return docker.NewTLSClient(endpoint, "./certificates/cert.pem", "./certificates/key.pem", "./certificates/ca.pem") // TODO deal with this (settings?)
+//*********************************************************************************
+// Helper Functions
+//*********************************************************************************
+
+func generateClient(d *distro.Distro) (*docker.Client, *Settings, error) {
+	// Populate and validate settings
+	settings := &Settings{} // Instantiate global settings
+	if err := mapstructure.Decode(d.ProviderSettings, settings); err != nil {
+		return nil, settings, fmt.Errorf("Error decoding params for distro %v: %v", d.Id, err)
+	}
+
+	if err := settings.Validate(); err != nil {
+		return nil, settings, fmt.Errorf("Invalid Docker settings in distro %v: %v", d.Id, err)
+	}
+
+	// Create client
+	endpoint := fmt.Sprintf("tcp://%s:%v", settings.HostIp, settings.ClientPort)
+	// TODO deal with the certificates dynamically
+	client, err := docker.NewTLSClient(endpoint, "./certificates/cert.pem", "./certificates/key.pem", "./certificates/ca.pem")
+	if err != nil {
+		evergreen.Logger.Logf(slogger.ERROR, "Docker initialize client API call failed "+
+			"for host '%s': %v", endpoint, err)
+	}
+	return client, settings, err
 }
 
+func populateHostConfig(hostConfig *docker.HostConfig, settings *Settings, image *docker.Image) {
+	minPort := settings.MinPort
+	maxPort := settings.MaxPort
+
+	// If unspecified, let Docker choose random port
+	if minPort == 0 && maxPort == 0 {
+		hostConfig.PublishAllPorts = true
+		return
+	}
+
+	// For every exposed port on container, bind all host ports specified in range given by user
+	hostConfig.PortBindings = make(map[docker.Port][]docker.PortBinding)
+	for k, _ := range image.Config.ExposedPorts {
+		portBindings := make([]docker.PortBinding, 0, maxPort-minPort) // TODO does it make sense to allocate length = cap and then avoid using append function?
+		for i := minPort; i <= maxPort; i++ {
+			binding := docker.PortBinding{
+				HostIP:   settings.HostIp,
+				HostPort: fmt.Sprintf("%v", i),
+			}
+			portBindings = append(portBindings, binding)
+		}
+		hostConfig.PortBindings[k] = portBindings
+	}
+}
+
+func retrieveOpenPortBinding(containerPtr *docker.Container) (string, error) {
+	exposedPorts := containerPtr.Config.ExposedPorts
+	ports := containerPtr.NetworkSettings.Ports
+	for k, _ := range exposedPorts {
+		portBindings := ports[k]
+		if len(portBindings) > 0 {
+			return portBindings[0].HostPort, nil
+		}
+	}
+	return "", fmt.Errorf("No available ports")
+}
+
+//*********************************************************************************
+// Public Functions
+//*********************************************************************************
+
 //Validate checks that the settings from the config file are sane.
-func (self *Settings) Validate() error {
-	if self.HostIp == "" {
+func (settings *Settings) Validate() error {
+	if settings.HostIp == "" {
 		return fmt.Errorf("HostIp must not be blank")
 	}
 
-	if self.ImageName == "" {
+	if settings.ImageId == "" {
 		return fmt.Errorf("ImageName must not be blank")
 	}
 
-	if self.User == "" {
-		return fmt.Errorf("User must not be blank")
+	if settings.ContainerName == "" {
+		return fmt.Errorf("ContainerName must not be blank")
 	}
 
-	if self.Port != 2376 {
-		return fmt.Errorf("Port must be set to 2376")
+	if settings.ClientPort == 0 {
+		return fmt.Errorf("Port must not be blank")
 	}
 
 	return nil
@@ -76,30 +139,6 @@ func (self *Settings) Validate() error {
 
 func (_ *DockerManager) GetSettings() cloud.ProviderSettings {
 	return &Settings{}
-}
-
-func tmpGetSettings() *Settings {
-	return &Settings{
-		HostIp,
-		ImageName,
-		User,
-		Port, // TODO if this really is restricted to 2376, then should be a constant
-		ContainerName,
-	}
-}
-
-// retrieveOpenPortBinding returns the first exposed port for a give docker container
-// TODO probably only need to return the port part?
-func retrieveOpenPortBinding(containerPtr *docker.Container) (docker.PortBinding, error) {
-	exposedPorts := containerPtr.Config.ExposedPorts
-	for k, _ := range exposedPorts {
-		ports := containerPtr.NetworkSettings.Ports
-		portBindings := ports[k]
-		if len(portBindings) > 0 {
-			return portBindings[0], nil
-		}
-	}
-	return docker.PortBinding{}, fmt.Errorf("No available ports")
 }
 
 // SpawnInstance creates and starts a new Docker container
@@ -110,39 +149,37 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 		return nil, fmt.Errorf("Can't spawn instance of %v for distro %v: provider is %v", ProviderName, d.Id, d.Provider)
 	}
 
-	// Settings
-	dockerSettings := tmpGetSettings()
-	//	if err := mapstructure.Decode(d.ProviderSettings, digoSettings); err != nil {
-	//		return nil, fmt.Errorf("Error decoding params for distro %v: %v", d.Id, err)
-	//	}
-
-	if err := dockerSettings.Validate(); err != nil {
-		return nil, fmt.Errorf("Invalid Docker settings in distro %v: %v", d.Id, err)
-	}
-
 	// Initialize client
-	dockerClient, err := generateClient(dockerSettings)
+	dockerClient, settings, err := generateClient(d)
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker initialize client API call failed "+
-			"for host '%s': %v", "FILLER", err)
 		return nil, err
 	}
+
+	// Retrieve image information
+	image, err := dockerClient.InspectImage(settings.ImageId)
+	if err != nil {
+		evergreen.Logger.Logf(slogger.ERROR, "Docker InspectImage API call failed "+
+			"for host '%s': %v", settings.HostIp, err)
+		return nil, err
+	}
+
+	// Createo HostConfig structure
+	hostConfig := &docker.HostConfig{}
+	populateHostConfig(hostConfig, settings, image)
 
 	// Build container
 	newContainer, err := dockerClient.CreateContainer(
 		docker.CreateContainerOptions{
-			Name: dockerSettings.ContainerName,
+			Name: settings.ContainerName,
 			Config: &docker.Config{
-				Image: dockerSettings.ImageName,
+				Image: settings.ImageId,
 			},
-			HostConfig: &docker.HostConfig{
-				PublishAllPorts: true,
-			},
+			HostConfig: hostConfig,
 		},
 	)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Docker create container API call failed "+
-			"for host '%s': %v", "FILLER", err)
+			"for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
 
@@ -150,7 +187,7 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	err = dockerClient.StartContainer(newContainer.ID, nil)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Docker start container API call failed "+
-			"for host '%s': %v", "FILLER", err)
+			"for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
 
@@ -158,18 +195,17 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	newContainer, err = dockerClient.InspectContainer(newContainer.ID)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Docker inspect container API call failed "+
-			"for host '%s': %v", "FILLER", err)
+			"for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
 
-	portBinding, err := retrieveOpenPortBinding(newContainer)
+	hostPort, err := retrieveOpenPortBinding(newContainer)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Error with docker container '%v': "+
 			"%v", newContainer.ID, err)
 		return nil, err
 	}
-	hostPort := portBinding.HostPort
-	hostStr := fmt.Sprintf("%s:%s", dockerSettings.HostIp, hostPort)
+	hostStr := fmt.Sprintf("%s:%s", settings.HostIp, hostPort)
 
 	// Add host info to db
 	instanceName := "container-" +
@@ -191,7 +227,7 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	err = host.Insert()
 	if err != nil {
 		return nil, evergreen.Logger.Errorf(slogger.ERROR, "Failed to insert new "+
-			"host '%v': %v", host.Id, err)
+			"host '%s': %v", host.Id, err)
 	}
 
 	evergreen.Logger.Logf(slogger.DEBUG, "Successfully inserted new host '%v' "+
@@ -222,17 +258,15 @@ func getStatus(s *docker.State) int {
 // GetInstanceStatus returns a universal status code representing the state
 // of a container.
 func (dockerMgr *DockerManager) GetInstanceStatus(host *host.Host) (cloud.CloudStatus, error) {
-	dockerClient, err := generateClient(tmpGetSettings())
-	// TODO refactor this to be cleaner
+	dockerClient, _, err := generateClient(&host.Distro)
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker initialize client API call failed "+
-			"for host '%s': %v", "FILLER", err)
 		return cloud.StatusUnknown, err
 	}
 
 	container, err := dockerClient.InspectContainer(host.Id)
 	if err != nil {
-		return cloud.StatusUnknown, fmt.Errorf("Failed to get container info: %v", err)
+		return cloud.StatusUnknown, fmt.Errorf("Failed to get container information "+
+			"for host '%v': %v", host.Id, err)
 	}
 
 	switch getStatus(&container.State) {
@@ -252,16 +286,15 @@ func (dockerMgr *DockerManager) GetInstanceStatus(host *host.Host) (cloud.CloudS
 //GetDNSName gets the DNS hostname of a droplet by reading it directly from
 //the Docker API
 func (dockerMgr *DockerManager) GetDNSName(host *host.Host) (string, error) {
-	dockerClient, err := generateClient(tmpGetSettings())
-	// TODO refactor this to be cleaner
+	dockerClient, _, err := generateClient(&host.Distro)
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker initialize client API call failed "+
-			"for host '%s': %v", "FILLER", err)
 		return "", err
 	}
 
 	container, err := dockerClient.InspectContainer(host.Id)
 	if err != nil {
+		evergreen.Logger.Logf(slogger.ERROR, "Docker Inspect Container API call failed "+
+			"for host '%s': %v", host.Id, err)
 		return "", err
 	}
 	return container.NetworkSettings.IPAddress, nil
@@ -275,15 +308,12 @@ func (dockerMgr *DockerManager) CanSpawn() (bool, error) {
 
 //TerminateInstance destroys a container.
 func (dockerMgr *DockerManager) TerminateInstance(host *host.Host) error {
-	dockerClient, err := generateClient(tmpGetSettings())
-	// TODO refactor this to be cleaner
+	dockerClient, _, err := generateClient(&host.Distro)
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker initialize client API call failed "+
-			"for host '%s': %v", "FILLER", err)
 		return err
 	}
 
-	err = dockerClient.StopContainer(host.Id, 5)
+	err = dockerClient.StopContainer(host.Id, Timeout)
 	if err != nil {
 		return evergreen.Logger.Errorf(slogger.ERROR, "Failed to stop container '%v': %v", host.Id, err)
 	}
@@ -303,7 +333,6 @@ func (dockerMgr *DockerManager) TerminateInstance(host *host.Host) error {
 //Configure populates a DockerManager by reading relevant settings from the
 //config object.
 func (dockerMgr *DockerManager) Configure(settings *evergreen.Settings) error {
-	// TODO is this just for mci_settings.yml stuff?
 	return nil
 }
 
@@ -331,7 +360,6 @@ func (dockerMgr *DockerManager) IsUp(host *host.Host) (bool, error) {
 }
 
 func (dockerMgr *DockerManager) OnUp(host *host.Host) error {
-	// TODO idk what this for!!!!
 	return nil
 }
 
@@ -339,8 +367,9 @@ func (dockerMgr *DockerManager) OnUp(host *host.Host) error {
 //container.
 func (dockerMgr *DockerManager) GetSSHOptions(host *host.Host, keyPath string) ([]string, error) {
 	if keyPath == "" {
-		return []string{}, fmt.Errorf("No key specified for DigitalOcean host")
+		return []string{}, fmt.Errorf("No key specified for Docker host")
 	}
+
 	opts := []string{"-i", keyPath}
 	for _, opt := range host.Distro.SSHOptions {
 		opts = append(opts, "-o", opt)
