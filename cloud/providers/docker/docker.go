@@ -12,6 +12,7 @@ import (
 	"github.com/evergreen-ci/evergreen/model/host"
 	"github.com/fsouza/go-dockerclient"
 	"github.com/mitchellh/mapstructure"
+	"gopkg.in/mgo.v2/bson"
 	"math/rand"
 	"time"
 )
@@ -34,8 +35,8 @@ type Settings struct {
 	HostIp     string `mapstructure:"host_ip" json:"host_ip" bson:"host_ip"`
 	ImageId    string `mapstructure:"image_id" json:"image_id" bson:"image_id"`
 	ClientPort int    `mapstructure:"client_port" json:"client_port" bson:"client_port"`
-	MinPort    uint16 `mapstructure:"min_port" json:"min_port" bson:"min_port"`
-	MaxPort    uint16 `mapstructure:"max_port" json:"max_port" bson:"max_port"`
+	MinPort    int64  `mapstructure:"min_port" json:"min_port" bson:"min_port"`
+	MaxPort    int64  `mapstructure:"max_port" json:"max_port" bson:"max_port"`
 }
 
 var (
@@ -67,8 +68,7 @@ func generateClient(d *distro.Distro) (*docker.Client, *Settings, error) {
 	// TODO deal with the certificates dynamically
 	client, err := docker.NewTLSClient(endpoint, "./certificates/cert.pem", "./certificates/key.pem", "./certificates/ca.pem")
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker initialize client API call failed "+
-			"for host '%s': %v", endpoint, err)
+		evergreen.Logger.Logf(slogger.ERROR, "Docker initialize client API call failed for host '%s': %v", endpoint, err)
 	}
 	return client, settings, err
 }
@@ -85,8 +85,7 @@ func populateHostConfig(hostConfig *docker.HostConfig, d *distro.Distro, image *
 	// Get all the things!
 	containers, err := client.ListContainers(docker.ListContainersOptions{})
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker list containers API call failed. "+
-			"%v", err)
+		evergreen.Logger.Logf(slogger.ERROR, "Docker list containers API call failed. %v", err)
 		return err
 	}
 	reservedPorts := make(map[int64]bool)
@@ -152,10 +151,6 @@ func (settings *Settings) Validate() error {
 		return fmt.Errorf("ImageName must not be blank")
 	}
 
-	if settings.ContainerName == "" {
-		return fmt.Errorf("ContainerName must not be blank")
-	}
-
 	if settings.ClientPort == 0 {
 		return fmt.Errorf("Port must not be blank")
 	}
@@ -197,9 +192,10 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	}
 
 	// Build container
+	containerName := "docker-" + bson.NewObjectId().Hex()
 	newContainer, err := dockerClient.CreateContainer(
 		docker.CreateContainerOptions{
-			Name: settings.ContainerName,
+			Name: containerName,
 			Config: &docker.Config{
 				Image: settings.ImageId,
 			},
