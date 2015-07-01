@@ -165,9 +165,13 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 
 	// Createo HostConfig structure
 	hostConfig := &docker.HostConfig{}
+	time1 := time.Now()
 	populateHostConfig(hostConfig, settings, image)
+	time2 := time.Now()
+	fmt.Printf("Time elapsed populating config: %v\n", time2.UnixNano()-time1.UnixNano())
 
 	// Build container
+	time1 = time.Now()
 	newContainer, err := dockerClient.CreateContainer(
 		docker.CreateContainerOptions{
 			Name: settings.ContainerName,
@@ -182,29 +186,40 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 			"for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
+	time2 = time.Now()
+	fmt.Printf("Time elapsed creating container: %v\n", time2.UnixNano()-time1.UnixNano())
 
 	// Start container
+	time1 = time.Now()
 	err = dockerClient.StartContainer(newContainer.ID, nil)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Docker start container API call failed "+
 			"for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
+	time2 = time.Now()
+	fmt.Printf("Time elapsed starting container: %v\n", time2.UnixNano()-time1.UnixNano())
 
 	// Retrieve container details
+	time1 = time.Now()
 	newContainer, err = dockerClient.InspectContainer(newContainer.ID)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Docker inspect container API call failed "+
 			"for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
+	time2 = time.Now()
+	fmt.Printf("Time elapsed inspecting container: %v\n", time2.UnixNano()-time1.UnixNano())
 
+	time1 = time.Now()
 	hostPort, err := retrieveOpenPortBinding(newContainer)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Error with docker container '%v': "+
 			"%v", newContainer.ID, err)
 		return nil, err
 	}
+	time2 = time.Now()
+	fmt.Printf("Time elapsed retrieving open ports bindings: %v\n", time2.UnixNano()-time1.UnixNano())
 	hostStr := fmt.Sprintf("%s:%s", settings.HostIp, hostPort)
 
 	// Add host info to db
@@ -224,7 +239,10 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 		StartedBy:        owner,
 	}
 
+	time1 = time.Now()
 	err = host.Insert()
+	time2 = time.Now()
+	fmt.Printf("Time elapsed inserting host to database: %v\n", time2.UnixNano()-time1.UnixNano())
 	if err != nil {
 		return nil, evergreen.Logger.Errorf(slogger.ERROR, "Failed to insert new "+
 			"host '%s': %v", host.Id, err)
