@@ -31,22 +31,20 @@ type DockerManager struct {
 }
 
 type Settings struct {
-	HostIp        string `mapstructure:"host_ip" json:"host_ip" bson:"host_ip"`
-	ImageId       string `mapstructure:"image_id" json:"image_id" bson:"image_id"`
-	ContainerName string `mapstructure:"container_name" json:"container_name" bson:"container_name"`
-	ClientPort    int    `mapstructure:"client_port" json:"client_port" bson:"client_port"`
-	MinPort       int64  `mapstructure:"min_port" json:"min_port" bson:"min_port"`
-	MaxPort       int64  `mapstructure:"max_port" json:"max_port" bson:"max_port"`
+	HostIp     string `mapstructure:"host_ip" json:"host_ip" bson:"host_ip"`
+	ImageId    string `mapstructure:"image_id" json:"image_id" bson:"image_id"`
+	ClientPort int    `mapstructure:"client_port" json:"client_port" bson:"client_port"`
+	MinPort    uint16 `mapstructure:"min_port" json:"min_port" bson:"min_port"`
+	MaxPort    uint16 `mapstructure:"max_port" json:"max_port" bson:"max_port"`
 }
 
 var (
 	// bson fields for the Settings struct
-	HostIp        = bsonutil.MustHaveTag(Settings{}, "HostIp")
-	ImageId       = bsonutil.MustHaveTag(Settings{}, "ImageId")
-	ContainerName = bsonutil.MustHaveTag(Settings{}, "ContainerName")
-	ClientPort    = bsonutil.MustHaveTag(Settings{}, "ClientPort")
-	MinPort       = bsonutil.MustHaveTag(Settings{}, "MinPort")
-	MaxPort       = bsonutil.MustHaveTag(Settings{}, "MaxPort")
+	HostIp     = bsonutil.MustHaveTag(Settings{}, "HostIp")
+	ImageId    = bsonutil.MustHaveTag(Settings{}, "ImageId")
+	ClientPort = bsonutil.MustHaveTag(Settings{}, "ClientPort")
+	MinPort    = bsonutil.MustHaveTag(Settings{}, "MinPort")
+	MaxPort    = bsonutil.MustHaveTag(Settings{}, "MaxPort")
 )
 
 //*********************************************************************************
@@ -91,10 +89,10 @@ func populateHostConfig(hostConfig *docker.HostConfig, d *distro.Distro, image *
 			"%v", err)
 		return err
 	}
-	reservedPorts := make(map[int64]struct{})
+	reservedPorts := make(map[int64]bool)
 	for _, c := range containers {
 		for _, p := range c.Ports {
-			reservedPorts[p.PublicPort] = struct{}{}
+			reservedPorts[p.PublicPort] = true
 		}
 	}
 
@@ -109,7 +107,7 @@ func populateHostConfig(hostConfig *docker.HostConfig, d *distro.Distro, image *
 	for k := range image.Config.ExposedPorts {
 		for i := minPort; i <= maxPort; i++ {
 			// if port is not already in use, bind it to this exposed container port (k)
-			if _, ok := reservedPorts[i]; !ok {
+			if !reservedPorts[i] {
 				hostConfig.PortBindings[k] = []docker.PortBinding{
 					docker.PortBinding{
 						HostIP:   settings.HostIp,
@@ -174,8 +172,7 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	var err error
 
 	if d.Provider != ProviderName {
-		return nil, fmt.Errorf("Can't spawn instance of %v for distro %v: provider is "+
-			"%v", ProviderName, d.Id, d.Provider)
+		return nil, fmt.Errorf("Can't spawn instance of %v for distro %v: provider is %v", ProviderName, d.Id, d.Provider)
 	}
 
 	// Initialize client
@@ -187,8 +184,7 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	// Retrieve image information
 	image, err := dockerClient.InspectImage(settings.ImageId)
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker InspectImage API call failed "+
-			"for host '%s': %v", settings.HostIp, err)
+		evergreen.Logger.Logf(slogger.ERROR, "Docker InspectImage API call failed for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
 
@@ -196,8 +192,7 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	hostConfig := &docker.HostConfig{}
 	err = populateHostConfig(hostConfig, d, image)
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Unable to populate docker host config "+
-			"for host '%s': %v", settings.HostIp, err)
+		evergreen.Logger.Logf(slogger.ERROR, "Unable to populate docker host config for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
 
@@ -212,31 +207,27 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 		},
 	)
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker create container API call failed "+
-			"for host '%s': %v", settings.HostIp, err)
+		evergreen.Logger.Logf(slogger.ERROR, "Docker create container API call failed for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
 
 	// Start container
 	err = dockerClient.StartContainer(newContainer.ID, nil)
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker start container API call failed "+
-			"for host '%s': %v", settings.HostIp, err)
+		evergreen.Logger.Logf(slogger.ERROR, "Docker start container API call failed for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
 
 	// Retrieve container details
 	newContainer, err = dockerClient.InspectContainer(newContainer.ID)
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker inspect container API call failed "+
-			"for host '%s': %v", settings.HostIp, err)
+		evergreen.Logger.Logf(slogger.ERROR, "Docker inspect container API call failed for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
 
 	hostPort, err := retrieveOpenPortBinding(newContainer)
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Error with docker container '%v': "+
-			"%v", newContainer.ID, err)
+		evergreen.Logger.Logf(slogger.ERROR, "Error with docker container '%v': %v", newContainer.ID, err)
 		return nil, err
 	}
 	hostStr := fmt.Sprintf("%s:%s", settings.HostIp, hostPort)
@@ -260,12 +251,10 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 
 	err = host.Insert()
 	if err != nil {
-		return nil, evergreen.Logger.Errorf(slogger.ERROR, "Failed to insert new "+
-			"host '%s': %v", host.Id, err)
+		return nil, evergreen.Logger.Errorf(slogger.ERROR, "Failed to insert new host '%s': %v", host.Id, err)
 	}
 
-	evergreen.Logger.Logf(slogger.DEBUG, "Successfully inserted new host '%v' "+
-		"for distro '%v'", host.Id, d.Id)
+	evergreen.Logger.Logf(slogger.DEBUG, "Successfully inserted new host '%v' for distro '%v'", host.Id, d.Id)
 
 	return host, nil
 }
@@ -299,8 +288,7 @@ func (dockerMgr *DockerManager) GetInstanceStatus(host *host.Host) (cloud.CloudS
 
 	container, err := dockerClient.InspectContainer(host.Id)
 	if err != nil {
-		return cloud.StatusUnknown, fmt.Errorf("Failed to get container information "+
-			"for host '%v': %v", host.Id, err)
+		return cloud.StatusUnknown, fmt.Errorf("Failed to get container information for host '%v': %v", host.Id, err)
 	}
 
 	switch getStatus(&container.State) {
@@ -327,8 +315,7 @@ func (dockerMgr *DockerManager) GetDNSName(host *host.Host) (string, error) {
 
 	container, err := dockerClient.InspectContainer(host.Id)
 	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker Inspect Container API call failed "+
-			"for host '%s': %v", host.Id, err)
+		evergreen.Logger.Logf(slogger.ERROR, "Docker Inspect Container API call failed for host '%s': %v", host.Id, err)
 		return "", err
 	}
 	return container.NetworkSettings.IPAddress, nil
