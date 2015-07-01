@@ -35,8 +35,8 @@ type Settings struct {
 	ImageId       string `mapstructure:"image_id" json:"image_id" bson:"image_id"`
 	ContainerName string `mapstructure:"container_name" json:"container_name" bson:"container_name"`
 	ClientPort    int    `mapstructure:"client_port" json:"client_port" bson:"client_port"`
-	MinPort       int    `mapstructure:"min_port" json:"min_port" bson:"min_port"`
-	MaxPort       int    `mapstructure:"max_port" json:"max_port" bson:"max_port"`
+	MinPort       int64  `mapstructure:"min_port" json:"min_port" bson:"min_port"`
+	MaxPort       int64  `mapstructure:"max_port" json:"max_port" bson:"max_port"`
 }
 
 var (
@@ -75,29 +75,57 @@ func generateClient(d *distro.Distro) (*docker.Client, *Settings, error) {
 	return client, settings, err
 }
 
-func populateHostConfig(hostConfig *docker.HostConfig, settings *Settings, image *docker.Image) {
+func populateHostConfig(hostConfig *docker.HostConfig, d *distro.Distro, image *docker.Image) error {
+	// Retrieve client for API call and settings
+	client, settings, err := generateClient(d)
+	if err != nil {
+		return err
+	}
 	minPort := settings.MinPort
 	maxPort := settings.MaxPort
+
+	// Get all the things!
+	containers, err := client.ListContainers(docker.ListContainersOptions{})
+	if err != nil {
+		evergreen.Logger.Logf(slogger.ERROR, "Docker list containers API call failed. "+
+			"%v", err)
+		return err
+	}
+	reservedPorts := make(map[int64]struct{})
+	for _, c := range containers {
+		for _, p := range c.Ports {
+			reservedPorts[p.PublicPort] = struct{}{}
+		}
+	}
 
 	// If unspecified, let Docker choose random port
 	if minPort == 0 && maxPort == 0 {
 		hostConfig.PublishAllPorts = true
-		return
+		return nil
 	}
 
 	// For every exposed port on container, bind all host ports specified in range given by user
 	hostConfig.PortBindings = make(map[docker.Port][]docker.PortBinding)
-	for k, _ := range image.Config.ExposedPorts {
-		portBindings := make([]docker.PortBinding, 0, maxPort-minPort) // TODO does it make sense to allocate length = cap and then avoid using append function?
+	for k := range image.Config.ExposedPorts {
 		for i := minPort; i <= maxPort; i++ {
-			binding := docker.PortBinding{
-				HostIP:   settings.HostIp,
-				HostPort: fmt.Sprintf("%v", i),
+			// if port is not already in use, bind it to this exposed container port (k)
+			if _, ok := reservedPorts[i]; !ok {
+				hostConfig.PortBindings[k] = []docker.PortBinding{
+					docker.PortBinding{
+						HostIP:   settings.HostIp,
+						HostPort: fmt.Sprintf("%v", i),
+					},
+				}
+				break
 			}
-			portBindings = append(portBindings, binding)
 		}
-		hostConfig.PortBindings[k] = portBindings
 	}
+
+	// If map is empty, no ports were available.
+	if len(hostConfig.PortBindings) == 0 {
+		return evergreen.Logger.Errorf(slogger.ERROR, "No available ports in specified range.")
+	}
+	return nil
 }
 
 func retrieveOpenPortBinding(containerPtr *docker.Container) (string, error) {
@@ -146,7 +174,8 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	var err error
 
 	if d.Provider != ProviderName {
-		return nil, fmt.Errorf("Can't spawn instance of %v for distro %v: provider is %v", ProviderName, d.Id, d.Provider)
+		return nil, fmt.Errorf("Can't spawn instance of %v for distro %v: provider is "+
+			"%v", ProviderName, d.Id, d.Provider)
 	}
 
 	// Initialize client
@@ -163,15 +192,16 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 		return nil, err
 	}
 
-	// Createo HostConfig structure
+	// Create HostConfig structure
 	hostConfig := &docker.HostConfig{}
-	time1 := time.Now()
-	populateHostConfig(hostConfig, settings, image)
-	time2 := time.Now()
-	fmt.Printf("Time elapsed populating config: %v\n", time2.UnixNano()-time1.UnixNano())
+	err = populateHostConfig(hostConfig, d, image)
+	if err != nil {
+		evergreen.Logger.Logf(slogger.ERROR, "Unable to populate docker host config "+
+			"for host '%s': %v", settings.HostIp, err)
+		return nil, err
+	}
 
 	// Build container
-	time1 = time.Now()
 	newContainer, err := dockerClient.CreateContainer(
 		docker.CreateContainerOptions{
 			Name: settings.ContainerName,
@@ -186,40 +216,29 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 			"for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
-	time2 = time.Now()
-	fmt.Printf("Time elapsed creating container: %v\n", time2.UnixNano()-time1.UnixNano())
 
 	// Start container
-	time1 = time.Now()
 	err = dockerClient.StartContainer(newContainer.ID, nil)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Docker start container API call failed "+
 			"for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
-	time2 = time.Now()
-	fmt.Printf("Time elapsed starting container: %v\n", time2.UnixNano()-time1.UnixNano())
 
 	// Retrieve container details
-	time1 = time.Now()
 	newContainer, err = dockerClient.InspectContainer(newContainer.ID)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Docker inspect container API call failed "+
 			"for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
-	time2 = time.Now()
-	fmt.Printf("Time elapsed inspecting container: %v\n", time2.UnixNano()-time1.UnixNano())
 
-	time1 = time.Now()
 	hostPort, err := retrieveOpenPortBinding(newContainer)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Error with docker container '%v': "+
 			"%v", newContainer.ID, err)
 		return nil, err
 	}
-	time2 = time.Now()
-	fmt.Printf("Time elapsed retrieving open ports bindings: %v\n", time2.UnixNano()-time1.UnixNano())
 	hostStr := fmt.Sprintf("%s:%s", settings.HostIp, hostPort)
 
 	// Add host info to db
@@ -239,10 +258,7 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 		StartedBy:        owner,
 	}
 
-	time1 = time.Now()
 	err = host.Insert()
-	time2 = time.Now()
-	fmt.Printf("Time elapsed inserting host to database: %v\n", time2.UnixNano()-time1.UnixNano())
 	if err != nil {
 		return nil, evergreen.Logger.Errorf(slogger.ERROR, "Failed to insert new "+
 			"host '%s': %v", host.Id, err)
