@@ -24,8 +24,8 @@ const (
 	DockerStatusKilled
 	DockerStatusUnknown
 
-	ProviderName = "docker"
-	Timeout      = 5
+	ProviderName   = "docker"
+	TimeoutSeconds = 5
 )
 
 type DockerManager struct {
@@ -330,7 +330,7 @@ func (dockerMgr *DockerManager) TerminateInstance(host *host.Host) error {
 		return err
 	}
 
-	err = dockerClient.StopContainer(host.Id, Timeout)
+	err = dockerClient.StopContainer(host.Id, TimeoutSeconds)
 	if err != nil {
 		return evergreen.Logger.Errorf(slogger.ERROR, "Failed to stop container '%v': %v", host.Id, err)
 	}

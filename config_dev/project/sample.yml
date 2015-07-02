@@ -103,27 +103,39 @@ tasks:
 
 
 buildvariants:
-- name: osx-108
-  display_name: OSX
-  modules: ~
-  run_on:
-  - localtestdistro
-  expansions:
-    test_flags: "blah blah"
-  tasks:
-  - name: compile
-  - name: passing_test
-  - name: failing_test
-  - name: timeout_test
-- name: ubuntu
-  display_name: Ubuntu
-  modules: ~
-  run_on:
-  - ubuntu1404-test
-  expansions:
-    test_flags: "blah blah"
-  tasks:
-  - name: compile
-  - name: passing_test
-  - name: failing_test
-  - name: timeout_test
+-name: ubuntu-docker
+   display_name: Docker
+   modules: ~
+   run_on:
+   - debian71-dockertest
+   expansions:
+     test_flags: "blah blah"
+   tasks:
+   - name: compile
+   - name: passing_test
+   - name: failing_test
+   - name: timeout_test 
+#- name: osx-108
+#  display_name: OSX
+#  modules: ~
+#  run_on:
+#  - localtestdistro
+#  expansions:
+#    test_flags: "blah blah"
+#  tasks:
+#  - name: compile
+#  - name: passing_test
+#  - name: failing_test
+#  - name: timeout_test
+#- name: ubuntu
+#  display_name: Ubuntu
+#  modules: ~
+#  run_on:
+#  - ubuntu1404-test
+#  expansions:
+#    test_flags: "blah blah"
+#  tasks:
+#  - name: compile
+#  - name: passing_test
+#  - name: failing_test
+#  - name: timeout_test
