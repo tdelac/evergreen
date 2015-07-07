@@ -14,6 +14,9 @@ mciModule.controller('DistrosCtrl', function($scope, $window, mciDistroRestServi
   }, {
     'id': 'digitalocean',
     'display': 'Digital Ocean'
+  }, {
+    'id': 'docker',
+    'display': 'Docker'
   }];
 
   $scope.architectures = [{
@@ -237,6 +240,14 @@ mciModule.controller('DistrosCtrl', function($scope, $window, mciDistroRestServi
         }
       }
     });
+  }
+
+  $scope.isNegative = function(val) {
+    return val < 0;
+  }
+
+  $scope.isIncreasingOrder = function(smaller, larger) {
+    return (!smaller && !larger) || smaller <= larger
   }
 
   // scroll to top of window on page reload

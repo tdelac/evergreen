@@ -81,6 +81,41 @@ Evergreen - Distros
               </ul>
               <div class="icon icon-warning-sign distro-error" ng-show="form.providerForm.$dirty && form.providerForm.$error.required">&nbsp;Distro provider is required</div>
             </div>
+            <div ng-show="activeDistro.provider == 'docker'">
+              <div>
+                <label class="distro-label">Host:</label>
+                <input type="text" ng-required="activeDistro.provider == 'docker'" name="hostIP" class="form-control" ng-model="activeDistro.settings.host_ip" placeholder="Machine DNS name">
+                <div class="icon icon-warning-sign distro-error" ng-show="form.hostIP.$dirty && form.hostIP.$error.required || form.hostIP.$invalid">&nbsp;Host DNS is required</div>
+              </div>
+              <div>
+                <label class="distro-label">Image ID:</label>
+                <input type="text" name="imageID" class="form-control" ng-model="activeDistro.settings.image_id">
+                <div class="icon icon-warning-sign distro-error" ng-show="form.imageID.$dirty && form.imageID.$error.required || form.imageID.$invalid">&nbsp;Image ID is required</div>
+              </div>
+              <div>
+                <label class="distro-label">Docker Client Port:</label>
+                <input ng-required="activeDistro.provider == 'docker'" name="clientPort" class="form-control" type="number" ng-model="activeDistro.settings.client_port" placeholder="Port for connecting to docker client, e.g. 2376">
+                <div class="icon icon-warning-sign distro-error" ng-show="form.clientPort.$dirty && form.clientPort.$error.required || form.clientPort.$invalid || isNegative(form.clientPort.$modelValue)">&nbsp;Non-negative numeric Client Port is required</div>
+              </div>
+              <div id="port-table" class="distro-table-scroll">
+                <label class="distro-label">Container Port Range:</label>
+                <table style="margin-left: -8px;" ng-form name="portRange" class="table distro-table" ng-init="form.devName=''; form.devSize=''">
+                 <thead class="muted">
+                    <tr>
+                      <th>Min Port</th>
+                      <th>Max Port</th>
+                    </tr>
+                  </thead>
+                  <tr>
+                    <td style="padding-left: 10px;"><input ng-required="port_range.max_port" name="minPort" type="number" ng-model="port_range.min_port" class="col-md-10"></td>
+                    <td><input  ng-required="port_range.min_port" name="maxPort" type="number" ng-model="port_range.max_port" class="col-md-10"></td>
+                  </tr>
+                </table>
+                <div class="icon icon-warning-sign distro-error" ng-show="form.portRange.minPort.$dirty && form.portRange.minPort.$error.required || form.portRange.minPort.$invalid || isNegative(form.portRange.minPort.$modelValue)">&nbsp;Non-negative numeric minimum port in range is required</div>
+                <div class="icon icon-warning-sign distro-error" ng-show="form.portRange.maxPort.$dirty && form.portRange.maxPort.$error.required || form.portRange.maxPort.$invalid || isNegative(form.portRange.maxPort.$modelValue)">&nbsp;Non-negative numeric maximum port in range is required</div>
+                <div class="icon icon-warning-sign distro-error" ng-show="!isIncreasingOrder(form.portRange.minPort.$modelValue, form.portRange.maxPort.$modelValue)">&nbsp;Maximum port must be greater than or equal to minimum port</div>
+              </div>
+            </div>
             <div ng-show="activeDistro.provider == 'digitalocean'">
               <div>
                 <label class="distro-label">Image ID:</label>

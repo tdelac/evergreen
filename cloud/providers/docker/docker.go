@@ -31,12 +31,16 @@ const (
 type DockerManager struct {
 }
 
+type portRange struct {
+	MinPort int64 `mapstructure:"min_port" json:"min_port" bson:"min_port"`
+	MaxPort int64 `mapstructure:"max_port" json:"max_port" bson:"max_port"`
+}
+
 type Settings struct {
-	HostIp     string `mapstructure:"host_ip" json:"host_ip" bson:"host_ip"`
-	ImageId    string `mapstructure:"image_id" json:"image_id" bson:"image_id"`
-	ClientPort int    `mapstructure:"client_port" json:"client_port" bson:"client_port"`
-	MinPort    int64  `mapstructure:"min_port" json:"min_port" bson:"min_port"`
-	MaxPort    int64  `mapstructure:"max_port" json:"max_port" bson:"max_port"`
+	HostIp     string    `mapstructure:"host_ip" json:"host_ip" bson:"host_ip"`
+	ImageId    string    `mapstructure:"image_id" json:"image_id" bson:"image_id"`
+	ClientPort int       `mapstructure:"client_port" json:"client_port" bson:"client_port"`
+	PortRange  portRange `mapstructure:"port_range" json:"port_range" bson:"port_range"`
 }
 
 var (
@@ -44,6 +48,7 @@ var (
 	HostIp     = bsonutil.MustHaveTag(Settings{}, "HostIp")
 	ImageId    = bsonutil.MustHaveTag(Settings{}, "ImageId")
 	ClientPort = bsonutil.MustHaveTag(Settings{}, "ClientPort")
+	PortRange  = bsonutil.MustHaveTag(Settings{}, "PortRange")
 	MinPort    = bsonutil.MustHaveTag(Settings{}, "MinPort")
 	MaxPort    = bsonutil.MustHaveTag(Settings{}, "MaxPort")
 )
@@ -79,8 +84,8 @@ func populateHostConfig(hostConfig *docker.HostConfig, d *distro.Distro, image *
 	if err != nil {
 		return err
 	}
-	minPort := settings.MinPort
-	maxPort := settings.MaxPort
+	minPort := settings.PortRange.MinPort
+	maxPort := settings.PortRange.MaxPort
 
 	// Get all the things!
 	containers, err := client.ListContainers(docker.ListContainersOptions{})
