@@ -24,8 +24,8 @@ const (
 	DockerStatusKilled
 	DockerStatusUnknown
 
-	ProviderName   = "docker"
-	TimeoutSeconds = 5
+	ProviderName = "docker"
+	Timeout      = 5
 )
 
 type DockerManager struct {
