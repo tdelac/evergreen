@@ -38,7 +38,7 @@ type portRange struct {
 
 type Settings struct {
 	HostIp     string    `mapstructure:"host_ip" json:"host_ip" bson:"host_ip"`
-	ImageId    string    `mapstructure:"image_id" json:"image_id" bson:"image_id"`
+	ImageId    string    `mapstructure:"image_name" json:"image_name" bson:"image_name"`
 	ClientPort int       `mapstructure:"client_port" json:"client_port" bson:"client_port"`
 	PortRange  portRange `mapstructure:"port_range" json:"port_range" bson:"port_range"`
 }
@@ -49,8 +49,8 @@ var (
 	ImageId    = bsonutil.MustHaveTag(Settings{}, "ImageId")
 	ClientPort = bsonutil.MustHaveTag(Settings{}, "ClientPort")
 	PortRange  = bsonutil.MustHaveTag(Settings{}, "PortRange")
-	MinPort    = bsonutil.MustHaveTag(Settings{}, "MinPort")
-	MaxPort    = bsonutil.MustHaveTag(Settings{}, "MaxPort")
+	MinPort    = bsonutil.MustHaveTag(portRange{}, "MinPort")
+	MaxPort    = bsonutil.MustHaveTag(portRange{}, "MaxPort")
 )
 
 //*********************************************************************************

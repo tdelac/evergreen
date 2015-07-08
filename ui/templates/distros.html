@@ -89,8 +89,8 @@ Evergreen - Distros
               </div>
               <div>
                 <label class="distro-label">Image ID:</label>
-                <input type="text" name="imageID" class="form-control" ng-model="activeDistro.settings.image_id">
-                <div class="icon icon-warning-sign distro-error" ng-show="form.imageID.$dirty && form.imageID.$error.required || form.imageID.$invalid">&nbsp;Image ID is required</div>
+                <input type="text" ng-required="activeDistro.provider == 'docker'" name="imageName" class="form-control" ng-model="activeDistro.settings.image_name">
+                <div class="icon icon-warning-sign distro-error" ng-show="form.imageName.$dirty && form.imageName.$error.required || form.imageName.$invalid">&nbsp;Image ID is required</div>
               </div>
               <div>
                 <label class="distro-label">Docker Client Port:</label>
@@ -107,8 +107,8 @@ Evergreen - Distros
                     </tr>
                   </thead>
                   <tr>
-                    <td style="padding-left: 10px;"><input ng-required="port_range.max_port" name="minPort" type="number" ng-model="port_range.min_port" class="col-md-10"></td>
-                    <td><input  ng-required="port_range.min_port" name="maxPort" type="number" ng-model="port_range.max_port" class="col-md-10"></td>
+                    <td style="padding-left: 10px;"><input ng-required="activeDistro.settings.port_range.max_port" name="minPort" type="number" ng-model="activeDistro.settings.port_range.min_port" class="col-md-10"></td>
+                    <td><input  ng-required="activeDistro.settings.port_range.min_port" name="maxPort" type="number" ng-model="activeDistro.settings.port_range.max_port" class="col-md-10"></td>
                   </tr>
                 </table>
                 <div class="icon icon-warning-sign distro-error" ng-show="form.portRange.minPort.$dirty && form.portRange.minPort.$error.required || form.portRange.minPort.$invalid || isNegative(form.portRange.minPort.$modelValue)">&nbsp;Non-negative numeric minimum port in range is required</div>
