@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/10gen-labs/slogger/v1"
 	"github.com/evergreen-ci/evergreen"
@@ -24,8 +25,8 @@ const (
 	DockerStatusKilled
 	DockerStatusUnknown
 
-	ProviderName = "docker"
-	Timeout      = 5
+	ProviderName   = "docker"
+	TimeoutSeconds = 5
 )
 
 type DockerManager struct {
@@ -36,11 +37,18 @@ type portRange struct {
 	MaxPort int64 `mapstructure:"max_port" json:"max_port" bson:"max_port"`
 }
 
+type auth struct {
+	Cert string `mapstructure:"cert" json:"cert" bson:"cert"`
+	Key  string `mapstructure:"key" json:"key" bson:"key"`
+	Ca   string `mapstructure:"ca" json:"ca" bson:"ca"`
+}
+
 type Settings struct {
-	HostIp     string    `mapstructure:"host_ip" json:"host_ip" bson:"host_ip"`
-	ImageId    string    `mapstructure:"image_name" json:"image_name" bson:"image_name"`
-	ClientPort int       `mapstructure:"client_port" json:"client_port" bson:"client_port"`
-	PortRange  portRange `mapstructure:"port_range" json:"port_range" bson:"port_range"`
+	HostIp     string     `mapstructure:"host_ip" json:"host_ip" bson:"host_ip"`
+	ImageId    string     `mapstructure:"image_name" json:"image_name" bson:"image_name"`
+	ClientPort int        `mapstructure:"client_port" json:"client_port" bson:"client_port"`
+	PortRange  *portRange `mapstructure:"port_range" json:"port_range" bson:"port_range"`
+	Auth       *auth      `mapstructure:"auth" json:"auth" bson:"auth"`
 }
 
 var (
@@ -49,8 +57,16 @@ var (
 	ImageId    = bsonutil.MustHaveTag(Settings{}, "ImageId")
 	ClientPort = bsonutil.MustHaveTag(Settings{}, "ClientPort")
 	PortRange  = bsonutil.MustHaveTag(Settings{}, "PortRange")
-	MinPort    = bsonutil.MustHaveTag(portRange{}, "MinPort")
-	MaxPort    = bsonutil.MustHaveTag(portRange{}, "MaxPort")
+	Auth       = bsonutil.MustHaveTag(Settings{}, "Auth")
+
+	// bson fields for the portRange struct
+	MinPort = bsonutil.MustHaveTag(portRange{}, "MinPort")
+	MaxPort = bsonutil.MustHaveTag(portRange{}, "MaxPort")
+
+	// bson fields for the auth struct
+	Cert = bsonutil.MustHaveTag(auth{}, "Cert")
+	Key  = bsonutil.MustHaveTag(auth{}, "Key")
+	Ca   = bsonutil.MustHaveTag(auth{}, "Ca")
 )
 
 //*********************************************************************************
@@ -68,10 +84,15 @@ func generateClient(d *distro.Distro) (*docker.Client, *Settings, error) {
 		return nil, settings, fmt.Errorf("Invalid Docker settings in distro %v: %v", d.Id, err)
 	}
 
+	// Convert authentication strings to byte arrays
+	// NOTE should this conversion be done at the angular level and stored as []bytes in the db?
+	cert := bytes.NewBufferString(settings.Auth.Cert).Bytes()
+	key := bytes.NewBufferString(settings.Auth.Key).Bytes()
+	ca := bytes.NewBufferString(settings.Auth.Ca).Bytes()
+
 	// Create client
 	endpoint := fmt.Sprintf("tcp://%s:%v", settings.HostIp, settings.ClientPort)
-	// TODO deal with the certificates dynamically
-	client, err := docker.NewTLSClient(endpoint, "./certificates/cert.pem", "./certificates/key.pem", "./certificates/ca.pem")
+	client, err := docker.NewTLSClientFromBytes(endpoint, cert, key, ca)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Docker initialize client API call failed for host '%s': %v", endpoint, err)
 	}
@@ -158,6 +179,25 @@ func (settings *Settings) Validate() error {
 
 	if settings.ClientPort == 0 {
 		return fmt.Errorf("Port must not be blank")
+	}
+
+	if settings.PortRange != nil {
+		min := settings.PortRange.MinPort
+		max := settings.PortRange.MaxPort
+
+		if max < min {
+			return fmt.Errorf("Container port range must be valid")
+		}
+	}
+
+	if settings.Auth == nil {
+		return fmt.Errorf("Authentication materials must not be blank")
+	} else if settings.Auth.Cert == "" {
+		return fmt.Errorf("Certificate must not be blank")
+	} else if settings.Auth.Key == "" {
+		return fmt.Errorf("Key must not be blank")
+	} else if settings.Auth.Ca == "" {
+		return fmt.Errorf("Certificate authority must not be blank")
 	}
 
 	return nil
