@@ -85,7 +85,6 @@ func generateClient(d *distro.Distro) (*docker.Client, *Settings, error) {
 	}
 
 	// Convert authentication strings to byte arrays
-	// NOTE should this conversion be done at the angular level and stored as []bytes in the db?
 	cert := bytes.NewBufferString(settings.Auth.Cert).Bytes()
 	key := bytes.NewBufferString(settings.Auth.Key).Bytes()
 	ca := bytes.NewBufferString(settings.Auth.Ca).Bytes()
@@ -142,6 +141,14 @@ func populateHostConfig(hostConfig *docker.HostConfig, d *distro.Distro, image *
 				break
 			}
 		}
+	}
+
+	// TODO make this part of the image. Should not be hard-coded
+	hostConfig.PortBindings["22/tcp"] = []docker.PortBinding{
+		docker.PortBinding{
+			HostIP:   settings.HostIp,
+			HostPort: fmt.Sprintf("%v", 22001),
+		},
 	}
 
 	// If map is empty, no ports were available.
@@ -242,6 +249,10 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 		docker.CreateContainerOptions{
 			Name: containerName,
 			Config: &docker.Config{
+				Cmd: []string{"/usr/sbin/sshd", "-D"}, // TODO remove
+				ExposedPorts: map[docker.Port]struct{}{ // TODO remove
+					"22/tcp": struct{}{},
+				},
 				Image: settings.ImageId,
 			},
 			HostConfig: hostConfig,
@@ -303,20 +314,17 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 // getStatus is a helper function which returns the enum representation of the status
 // contained in a container's state
 func getStatus(s *docker.State) int {
-	var ret int
 	if s.Running {
-		ret = DockerStatusRunning
+		return DockerStatusRunning
 	} else if s.Paused {
-		ret = DockerStatusPaused
+		return DockerStatusPaused
 	} else if s.Restarting {
-		ret = DockerStatusRestarting
+		return DockerStatusRestarting
 	} else if s.OOMKilled {
-		ret = DockerStatusKilled
-	} else {
-		ret = DockerStatusUnknown
+		return DockerStatusKilled
 	}
 
-	return ret
+	return DockerStatusUnknown
 }
 
 // GetInstanceStatus returns a universal status code representing the state
@@ -346,20 +354,13 @@ func (dockerMgr *DockerManager) GetInstanceStatus(host *host.Host) (cloud.CloudS
 	}
 }
 
-//GetDNSName gets the DNS hostname of a droplet by reading it directly from
+//GetDNSName gets the DNS hostname of a container by reading it directly from
 //the Docker API
 func (dockerMgr *DockerManager) GetDNSName(host *host.Host) (string, error) {
-	dockerClient, _, err := generateClient(&host.Distro)
-	if err != nil {
-		return "", err
-	}
-
-	container, err := dockerClient.InspectContainer(host.Id)
-	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker Inspect Container API call failed for host '%s': %v", host.Id, err)
-		return "", err
-	}
-	return container.NetworkSettings.IPAddress, nil
+	fmt.Printf("************************************\n")
+	fmt.Printf("The dns name is: %v\n", host.Host)
+	fmt.Printf("************************************\n")
+	return host.Host, nil
 }
 
 //CanSpawn returns if a given cloud provider supports spawning a new host

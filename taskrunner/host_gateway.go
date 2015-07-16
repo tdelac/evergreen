@@ -12,6 +12,7 @@ import (
 	"github.com/evergreen-ci/evergreen/model/host"
 	"github.com/evergreen-ci/evergreen/util"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -20,7 +21,7 @@ import (
 const (
 	MakeShellTimeout  = time.Second * 10
 	SCPTimeout        = time.Minute
-	StartAgentTimeout = time.Second * 10
+	StartAgentTimeout = time.Second * 100
 	agentFile         = "agent.log"
 )
 
@@ -333,11 +334,11 @@ func (self *AgentBasedHostGateway) startAgentOnRemote(
 	// run the command to kick off the agent remotely
 	startAgentCmd := &command.RemoteCommand{
 		CmdString:      remoteCmd,
-		Stdout:         ioutil.Discard,
-		Stderr:         ioutil.Discard,
+		Stdout:         os.Stdout,
+		Stderr:         os.Stderr,
 		RemoteHostName: hostInfo.Hostname,
 		User:           hostObj.User,
-		Options:        append([]string{"-p", hostInfo.Port}, sshOptions...),
+		Options:        append([]string{"-vvv", "-p", hostInfo.Port}, sshOptions...),
 		Background:     true,
 	}
 

@@ -95,7 +95,7 @@ Evergreen - Distros
               <div>
                 <label class="distro-label">Docker Client Port:</label>
                 <input ng-required="activeDistro.provider == 'docker'" name="clientPort" class="form-control" type="number" ng-model="activeDistro.settings.client_port" placeholder="Port for connecting to docker client, e.g. 2376">
-                <div class="icon icon-warning-sign distro-error" ng-show="form.clientPort.$dirty && form.clientPort.$error.required || form.clientPort.$invalid || isNegative(form.clientPort.$modelValue)">&nbsp;Non-negative numeric Client Port is required</div>
+                <div class="icon icon-warning-sign distro-error" ng-show="form.clientPort.$dirty && form.clientPort.$error.required || form.clientPort.$invalid || form.clientPort.$modelValue < 0">&nbsp;Non-negative numeric Client Port is required</div>
               </div>
               <div id="port-table" class="distro-table-scroll">
                 <label class="distro-label">Container Port Range:</label>
@@ -111,9 +111,7 @@ Evergreen - Distros
                     <td><input  ng-required="activeDistro.settings.port_range.min_port" name="maxPort" type="number" ng-model="activeDistro.settings.port_range.max_port" class="col-md-10"></td>
                   </tr>
                 </table>
-                <div class="icon icon-warning-sign distro-error" ng-show="form.portRange.minPort.$dirty && form.portRange.minPort.$error.required || form.portRange.minPort.$invalid || isNegative(form.portRange.minPort.$modelValue)">&nbsp;Non-negative numeric minimum port in range is required</div>
-                <div class="icon icon-warning-sign distro-error" ng-show="form.portRange.maxPort.$dirty && form.portRange.maxPort.$error.required || form.portRange.maxPort.$invalid || isNegative(form.portRange.maxPort.$modelValue)">&nbsp;Non-negative numeric maximum port in range is required</div>
-                <div class="icon icon-warning-sign distro-error" ng-show="!isIncreasingOrder(form.portRange.minPort.$modelValue, form.portRange.maxPort.$modelValue)">&nbsp;Maximum port must be greater than or equal to minimum port</div>
+                <div class="icon icon-warning-sign distro-error" ng-show="form.portRange.minPort.$dirty && form.portRange.minPort.$error.required || form.portRange.minPort.$invalid || !checkPortRange(form.portRange.minPort.$modelValue, form.portRange.maxPort.$modelValue)">&nbsp;A non-negative, increasing port range is required</div>
               </div>
               <div>
                 <label class="distro-label">Cert.pem:</label>

@@ -242,12 +242,8 @@ mciModule.controller('DistrosCtrl', function($scope, $window, mciDistroRestServi
     });
   }
 
-  $scope.isNegative = function(val) {
-    return val < 0;
-  }
-
-  $scope.isIncreasingOrder = function(smaller, larger) {
-    return (!smaller && !larger) || smaller <= larger
+  $scope.checkPortRange = function(min, max) {
+    return (!min && !max) || (min >= 0 && min <= max);
   }
 
   // scroll to top of window on page reload
