@@ -12,7 +12,6 @@ import (
 	"github.com/evergreen-ci/evergreen/model/host"
 	"github.com/evergreen-ci/evergreen/util"
 	"io/ioutil"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -334,8 +333,8 @@ func (self *AgentBasedHostGateway) startAgentOnRemote(
 	// run the command to kick off the agent remotely
 	startAgentCmd := &command.RemoteCommand{
 		CmdString:      remoteCmd,
-		Stdout:         os.Stdout,
-		Stderr:         os.Stderr,
+		Stdout:         ioutil.Discard,
+		Stderr:         ioutil.Discard,
 		RemoteHostName: hostInfo.Hostname,
 		User:           hostObj.User,
 		Options:        append([]string{"-vvv", "-p", hostInfo.Port}, sshOptions...),

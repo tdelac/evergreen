@@ -67,6 +67,9 @@ var (
 	Cert = bsonutil.MustHaveTag(auth{}, "Cert")
 	Key  = bsonutil.MustHaveTag(auth{}, "Key")
 	Ca   = bsonutil.MustHaveTag(auth{}, "Ca")
+
+	// exposed port (set to 22/tcp, default ssh port)
+	SSHDPort docker.Port = "22/tcp"
 )
 
 //*********************************************************************************
@@ -128,27 +131,17 @@ func populateHostConfig(hostConfig *docker.HostConfig, d *distro.Distro, image *
 
 	// For every exposed port on container, bind all host ports specified in range given by user
 	hostConfig.PortBindings = make(map[docker.Port][]docker.PortBinding)
-	for k := range image.Config.ExposedPorts {
-		for i := minPort; i <= maxPort; i++ {
-			// if port is not already in use, bind it to this exposed container port (k)
-			if !reservedPorts[i] {
-				hostConfig.PortBindings[k] = []docker.PortBinding{
-					docker.PortBinding{
-						HostIP:   settings.HostIp,
-						HostPort: fmt.Sprintf("%v", i),
-					},
-				}
-				break
+	for i := minPort; i <= maxPort; i++ {
+		// if port is not already in use, bind it to this exposed container port (k)
+		if !reservedPorts[i] {
+			hostConfig.PortBindings[SSHDPort] = []docker.PortBinding{
+				docker.PortBinding{
+					HostIP:   settings.HostIp,
+					HostPort: fmt.Sprintf("%v", i),
+				},
 			}
+			break
 		}
-	}
-
-	// TODO make this part of the image. Should not be hard-coded
-	hostConfig.PortBindings["22/tcp"] = []docker.PortBinding{
-		docker.PortBinding{
-			HostIP:   settings.HostIp,
-			HostPort: fmt.Sprintf("%v", 22001),
-		},
 	}
 
 	// If map is empty, no ports were available.
@@ -249,8 +242,8 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 		docker.CreateContainerOptions{
 			Name: containerName,
 			Config: &docker.Config{
-				Cmd: []string{"/usr/sbin/sshd", "-D"}, // TODO remove
-				ExposedPorts: map[docker.Port]struct{}{ // TODO remove
+				Cmd: []string{"/usr/sbin/sshd", "-D"},
+				ExposedPorts: map[docker.Port]struct{}{
 					"22/tcp": struct{}{},
 				},
 				Image: settings.ImageId,
