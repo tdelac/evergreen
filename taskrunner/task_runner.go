@@ -104,7 +104,6 @@ func (self *TaskRunner) Run() error {
 			waitGroup.Add(1)
 			go func() {
 				defer waitGroup.Done()
-
 				agentRevision, err := self.RunTaskOnHost(self.Settings,
 					dereferencedTask, nextHost)
 				if err != nil {
@@ -147,7 +146,6 @@ func (self *TaskRunner) Run() error {
 // given host, dequeues the task and then marks it as dispatched for the host
 func DispatchTaskForHost(taskQueue *model.TaskQueue, assignedHost *host.Host) (
 	nextTask *model.Task, err error) {
-
 	if assignedHost == nil {
 		return nil, fmt.Errorf("can not assign task to a nil host")
 	}
@@ -193,7 +191,6 @@ func DispatchTaskForHost(taskQueue *model.TaskQueue, assignedHost *host.Host) (
 
 		return nextTask, nil
 	}
-
 	return nil, nil
 }
 

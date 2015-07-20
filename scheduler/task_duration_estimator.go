@@ -24,7 +24,6 @@ func (self *DBTaskDurationEstimator) GetExpectedDurations(
 
 	// get the average task duration for all the runnable tasks
 	for _, task := range runnableTasks {
-		// TODO could be outside for loop?
 		if durations.TaskDurationByProject == nil {
 			durations.TaskDurationByProject =
 				make(map[string]*model.BuildVariantTaskDurations)

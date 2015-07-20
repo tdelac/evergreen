@@ -235,10 +235,6 @@ func (host *Host) UpdateRunningTask(prevTaskId, newTaskId string,
 func (self *Host) SetRunningTask(taskId, agentRevision string,
 	taskDispatchTime time.Time) error {
 
-	fmt.Printf("--------------------\n")
-	fmt.Printf("And here is where we set the running task I guess. It is: %v\n", taskId)
-	fmt.Printf("And also the agentRevision is: %v\n", agentRevision)
-	fmt.Printf("--------------------\n")
 	// log the event
 	event.LogHostRunningTaskSet(self.Id, taskId)
 

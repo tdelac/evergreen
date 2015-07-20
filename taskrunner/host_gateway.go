@@ -337,7 +337,7 @@ func (self *AgentBasedHostGateway) startAgentOnRemote(
 		Stderr:         ioutil.Discard,
 		RemoteHostName: hostInfo.Hostname,
 		User:           hostObj.User,
-		Options:        append([]string{"-vvv", "-p", hostInfo.Port}, sshOptions...),
+		Options:        append([]string{"-p", hostInfo.Port}, sshOptions...),
 		Background:     true,
 	}
 
