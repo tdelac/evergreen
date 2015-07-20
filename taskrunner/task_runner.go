@@ -76,13 +76,11 @@ func (self *TaskRunner) Run() error {
 
 		if taskQueue == nil {
 			evergreen.Logger.Logf(slogger.ERROR, "nil task queue found for distro '%v'", distroId)
-			fmt.Printf("Task queue for distro %v was nil\n", distroId)
 			continue
 		}
 
 		// while there are both free hosts and pending tasks left, pin
 		// tasks to hosts
-		fmt.Printf("--------BEGIN TASK EXEC LOOP----------\n")
 		for !taskQueue.IsEmpty() && len(freeHostsForDistro) > 0 {
 			nextHost := freeHostsForDistro[0]
 			nextTask, err := DispatchTaskForHost(taskQueue, &nextHost)
@@ -135,7 +133,6 @@ func (self *TaskRunner) Run() error {
 				}
 			}()
 		}
-		fmt.Printf("--------END TASK EXEC LOOP----------\n")
 	}
 
 	// wait for everything to finish
@@ -150,9 +147,6 @@ func (self *TaskRunner) Run() error {
 // given host, dequeues the task and then marks it as dispatched for the host
 func DispatchTaskForHost(taskQueue *model.TaskQueue, assignedHost *host.Host) (
 	nextTask *model.Task, err error) {
-	fmt.Printf("*************************************\n")
-	fmt.Printf("Begin dispatching task for host\n")
-	fmt.Printf("*************************************\n")
 
 	if assignedHost == nil {
 		return nil, fmt.Errorf("can not assign task to a nil host")
@@ -160,13 +154,10 @@ func DispatchTaskForHost(taskQueue *model.TaskQueue, assignedHost *host.Host) (
 
 	// only proceed if there are pending tasks left
 	for !taskQueue.IsEmpty() {
-		fmt.Printf("Get next task\n")
 		queueItem := taskQueue.NextTask()
 		// pin the task to the given host and fetch the full task document from
 		// the database
-		fmt.Printf("Retrieve task from database\n")
 		nextTask, err = model.FindTask(queueItem.Id)
-		fmt.Printf("Task is: %v\n", nextTask)
 		if err != nil {
 			return nil, fmt.Errorf("error finding task with id %v: %v",
 				queueItem.Id, err)
@@ -194,22 +185,14 @@ func DispatchTaskForHost(taskQueue *model.TaskQueue, assignedHost *host.Host) (
 		}
 
 		// record that the task was dispatched on the host
-		fmt.Printf("Marking as dispatched for assinged host: %v\n", assignedHost)
 		err = nextTask.MarkAsDispatched(assignedHost, time.Now())
 		if err != nil {
 			return nil, fmt.Errorf("error marking task %v as dispatched "+
 				"on host %v: %v", nextTask.Id, assignedHost.Id, err)
 		}
 
-		fmt.Printf("*************************************\n")
-		fmt.Printf("end dispatching task for host\n")
-		fmt.Printf("*************************************\n")
-
 		return nextTask, nil
 	}
-	fmt.Printf("*************************************\n")
-	fmt.Printf("end dispatching task for host\n")
-	fmt.Printf("*************************************\n")
 
 	return nil, nil
 }

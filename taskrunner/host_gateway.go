@@ -20,7 +20,7 @@ import (
 const (
 	MakeShellTimeout  = time.Second * 10
 	SCPTimeout        = time.Minute
-	StartAgentTimeout = time.Second * 100
+	StartAgentTimeout = time.Second * 10
 	agentFile         = "agent.log"
 )
 

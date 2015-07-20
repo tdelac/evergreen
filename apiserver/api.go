@@ -642,11 +642,7 @@ func (as *APIServer) GetDistro(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO error if h is nil?
 	// agent can't properly unmarshal provider settings map
-	if h == nil {
-		fmt.Printf("HOST IS NILLLLLLLL!!!!!!!!!\n")
-	}
 	h.Distro.ProviderSettings = nil
 	as.WriteJSON(w, http.StatusOK, h.Distro)
 }
