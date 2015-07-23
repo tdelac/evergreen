@@ -101,7 +101,7 @@ func generateClient(d *distro.Distro) (*docker.Client, *Settings, error) {
 	return client, settings, err
 }
 
-func populateHostConfig(hostConfig *docker.HostConfig, d *distro.Distro, image *docker.Image) error {
+func populateHostConfig(hostConfig *docker.HostConfig, d *distro.Distro) error {
 	// Retrieve client for API call and settings
 	client, settings, err := generateClient(d)
 	if err != nil {
@@ -129,10 +129,9 @@ func populateHostConfig(hostConfig *docker.HostConfig, d *distro.Distro, image *
 		return nil
 	}
 
-	// For every exposed port on container, bind all host ports specified in range given by user
 	hostConfig.PortBindings = make(map[docker.Port][]docker.PortBinding)
 	for i := minPort; i <= maxPort; i++ {
-		// if port is not already in use, bind it to this exposed container port (k)
+		// if port is not already in use, bind it to sshd exposed container port
 		if !reservedPorts[i] {
 			hostConfig.PortBindings[SSHDPort] = []docker.PortBinding{
 				docker.PortBinding{
@@ -221,16 +220,9 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 		return nil, err
 	}
 
-	// Retrieve image information
-	image, err := dockerClient.InspectImage(settings.ImageId)
-	if err != nil {
-		evergreen.Logger.Logf(slogger.ERROR, "Docker InspectImage API call failed for host '%s': %v", settings.HostIp, err)
-		return nil, err
-	}
-
 	// Create HostConfig structure
 	hostConfig := &docker.HostConfig{}
-	err = populateHostConfig(hostConfig, d, image)
+	err = populateHostConfig(hostConfig, d)
 	if err != nil {
 		evergreen.Logger.Logf(slogger.ERROR, "Unable to populate docker host config for host '%s': %v", settings.HostIp, err)
 		return nil, err
@@ -244,7 +236,7 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 			Config: &docker.Config{
 				Cmd: []string{"/usr/sbin/sshd", "-D"},
 				ExposedPorts: map[docker.Port]struct{}{
-					"22/tcp": struct{}{},
+					SSHDPort: struct{}{},
 				},
 				Image: settings.ImageId,
 			},
@@ -259,6 +251,16 @@ func (dockerMgr *DockerManager) SpawnInstance(d *distro.Distro, owner string, us
 	// Start container
 	err = dockerClient.StartContainer(newContainer.ID, nil)
 	if err != nil {
+		// Clean up
+		err2 := dockerClient.RemoveContainer(
+			docker.RemoveContainerOptions{
+				ID:    newContainer.ID,
+				Force: true,
+			},
+		)
+		if err2 != nil {
+			err = fmt.Errorf("%v. And was unable to clean up container %v: %v", err, newContainer.ID, err2)
+		}
 		evergreen.Logger.Logf(slogger.ERROR, "Docker start container API call failed for host '%s': %v", settings.HostIp, err)
 		return nil, err
 	}
@@ -350,9 +352,6 @@ func (dockerMgr *DockerManager) GetInstanceStatus(host *host.Host) (cloud.CloudS
 //GetDNSName gets the DNS hostname of a container by reading it directly from
 //the Docker API
 func (dockerMgr *DockerManager) GetDNSName(host *host.Host) (string, error) {
-	fmt.Printf("************************************\n")
-	fmt.Printf("The dns name is: %v\n", host.Host)
-	fmt.Printf("************************************\n")
 	return host.Host, nil
 }
 
