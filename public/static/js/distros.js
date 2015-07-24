@@ -243,6 +243,11 @@ mciModule.controller('DistrosCtrl', function($scope, $window, mciDistroRestServi
   }
 
   $scope.checkPortRange = function(min, max) {
+    if ($scope.form.portRange.minPort.$invalid) {
+        return false
+    } else if ($scope.form.portRange.maxPort.$invalid) {
+        return false
+    } 
     return (!min && !max) || (min >= 0 && min <= max);
   }
 

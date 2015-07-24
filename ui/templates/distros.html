@@ -100,18 +100,12 @@ Evergreen - Distros
               <div id="port-table" class="distro-table-scroll">
                 <label class="distro-label">Container Port Range:</label>
                 <table style="margin-left: -8px;" ng-form name="portRange" class="table distro-table" ng-init="form.devName=''; form.devSize=''">
-                 <thead class="muted">
-                    <tr>
-                      <th>Min Port</th>
-                      <th>Max Port</th>
-                    </tr>
-                  </thead>
                   <tr>
-                    <td style="padding-left: 10px;"><input ng-required="activeDistro.settings.port_range.max_port" name="minPort" type="number" ng-model="activeDistro.settings.port_range.min_port" class="col-md-10"></td>
-                    <td><input  ng-required="activeDistro.settings.port_range.min_port" name="maxPort" type="number" ng-model="activeDistro.settings.port_range.max_port" class="col-md-10"></td>
+                    <td style="padding-left: 10px;"><input ng-required="activeDistro.settings.port_range.max_port" name="minPort" type="number" ng-model="activeDistro.settings.port_range.min_port" class="col-md-10" placeholder="Min Port"></td>
+                    <td><input  ng-required="activeDistro.settings.port_range.min_port" name="maxPort" type="number" ng-model="activeDistro.settings.port_range.max_port" class="col-md-10" placeholder="Max Port"></td>
                   </tr>
                 </table>
-                <div class="icon icon-warning-sign distro-error" ng-show="form.portRange.minPort.$dirty && form.portRange.minPort.$error.required || form.portRange.minPort.$invalid || !checkPortRange(form.portRange.minPort.$modelValue, form.portRange.maxPort.$modelValue)">&nbsp;A non-negative, increasing port range is required</div>
+                <div class="icon icon-warning-sign distro-error" ng-show="!checkPortRange(form.portRange.minPort.$modelValue, form.portRange.maxPort.$modelValue)">&nbsp;A non-negative, increasing port range is required</div>
               </div>
               <div>
                 <label class="distro-label">Cert.pem:</label>
